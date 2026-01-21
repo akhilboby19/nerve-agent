@@ -5,6 +5,10 @@ import socket
 from datetime import datetime
 
 class Agent:
+    def __init__(self, interval=2):
+        self.interval = interval
+        self.prev_net=None
+
     def get_system_metrics(self):
         # 1. CPU Load
         cpu_usage = psutil.cpu_percent(interval=1)
@@ -18,7 +22,16 @@ class Agent:
         disk_usage = disk.percent
         
         # 4. Network Traffic (Bytes Sent/Recv)
-        net = psutil.net_io_counters()
+        current_net = psutil.net_io_counters()
+
+        if self.prev_net == None:
+            self.prev_net = current_net
+            
+        bytes_sent = current_net.bytes_sent - self.prev_net.bytes_sent
+        bytes_recv = current_net.bytes_recv - self.prev_net.bytes_recv
+
+        self.prev_net = current_net
+
 
         # 5. Boot time
         boot_time_raw = psutil.boot_time()
@@ -31,8 +44,8 @@ class Agent:
             "cpu": cpu_usage,
             "ram": ram_usage,
             "disk": disk_usage,
-            "net_sent_mb": round(net.bytes_sent / (1024 * 1024), 2),
-            "net_recv_mb": round(net.bytes_recv / (1024 * 1024), 2)
+            "net_sent_mb": round(bytes_sent / (1024 * 1024), 2),
+            "net_recv_mb": round(bytes_recv / (1024 * 1024), 2)
         }
         return payload
 
@@ -44,7 +57,7 @@ class Agent:
                 data = self.get_system_metrics()
                 print(json.dumps(data, indent=2)) 
                 # Later, we will send this to a Go backend or React frontend
-                time.sleep(2) 
+                time.sleep(self.interval) 
         except KeyboardInterrupt:
             print("\nStopping Agent...")
 
@@ -54,5 +67,5 @@ class Agent:
 
 
 if __name__ == "__main__":
-    agent = Agent()
+    agent = Agent(interval=2)
     agent.main()
