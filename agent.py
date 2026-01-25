@@ -1,13 +1,16 @@
 import time
 import json
+import requests
 import psutil # You might need: sudo apt install python3-psutil
 import socket
 from datetime import datetime
+import uuid
 
 class Agent:
     def __init__(self, interval=2):
         self.interval = interval
         self.prev_net=None
+        self.agent_id = str(uuid.uuid4())
 
     def get_system_metrics(self):
         # 1. CPU Load
@@ -38,6 +41,7 @@ class Agent:
         boot_time = datetime.fromtimestamp(boot_time_raw).isoformat()
         
         payload = {
+            "agent_id": self.agent_id,
             "boot_time": boot_time,
             "hostname": socket.gethostname(),
             "timestamp": datetime.now().isoformat(),
@@ -55,8 +59,14 @@ class Agent:
         try:
             while True:
                 data = self.get_system_metrics()
-                print(json.dumps(data, indent=2)) 
-                # Later, we will send this to a Go backend or React frontend
+                # print(json.dumps(data, indent=2)) 
+
+                try:
+                    response = requests.post("http://127.0.0.1:8000/metrics", json=data, timeout=2)
+                    print("Sent:", response.json())
+                except Exception as e:
+                    print("Failed to send:", e)
+
                 time.sleep(self.interval) 
         except KeyboardInterrupt:
             print("\nStopping Agent...")
