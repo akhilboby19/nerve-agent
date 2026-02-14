@@ -1,8 +1,28 @@
+import logging
 from fastapi import FastAPI
 from pydantic import BaseModel
 import uvicorn
+import database # Assuming you created this from our previous step
+
+# --- 1. CONFIGURATION (Do this once) ---
+# This sets up a log format: [Time] [Level] Message
+logging.basicConfig(
+    level=logging.INFO, # Change to DEBUG to see everything
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("nerve_backend.log"), # Save to file
+        logging.StreamHandler() # Also print to console
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+@app.on_event("startup")
+def startup():
+    database.init_db()
+    logger.info("Nerve Backend Initialized and DB connected.")
 
 class Metrics(BaseModel):
     agent_id: str
@@ -14,25 +34,25 @@ class Metrics(BaseModel):
     disk: float
     net_sent_mb: float
     net_recv_mb: float
-    # If you add 'gpu_temp: float' here later, the print loop below handles it automatically.
 
 @app.post("/metrics")
 def receive_metrics(data: Metrics):
-    
-    # We convert the Model to a Dictionary for dynamic processing
     payload = data.dict()
     
-    # Header
-    print(f"\n--- PULSE: {payload['hostname']} [{payload['timestamp'].split('T')[1][:8]}] ---")
-    
-    # Dynamic Loop: Iterates over whatever fields exist in the Model
-    # We filter out the 'meta' fields we already printed in the header
-    meta_keys = {"hostname", "timestamp", "agent_id", "boot_time"}
-    
-    for key, value in payload.items():
-        if key not in meta_keys:
-            # Simple formatting to align keys nicely
-            print(f"  {key:<12}: {value}")
+    try:
+        database.save_metric(payload)
+        
+        # --- 2. USAGE (Standard levels) ---
+        # INFO: Routine events (Alive)
+        logger.info(f"Pulse received from {payload['hostname']}")
+        
+        # DEBUG: Dev details (Hidden in production)
+        logger.debug(f"Payload details: {payload}")
+        
+    except Exception as e:
+        # ERROR: Something broke (Alerts)
+        logger.error(f"Failed to save metric: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
 
     return {"status": "ok"}
 
