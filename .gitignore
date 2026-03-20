@@ -1,2 +1,8 @@
 *.bk.py
+*.mg.py
 __pycache__/
+bugs.txt
+venv
+*.log
+*.bak
+*.db

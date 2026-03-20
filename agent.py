@@ -3,7 +3,7 @@ import json
 import requests
 import psutil # You might need: sudo apt install python3-psutil
 import socket
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 class Agent:
@@ -44,7 +44,7 @@ class Agent:
             "agent_id": self.agent_id,
             "boot_time": boot_time,
             "hostname": socket.gethostname(),
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "cpu": cpu_usage,
             "ram": ram_usage,
             "disk": disk_usage,

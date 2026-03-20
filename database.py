@@ -62,3 +62,114 @@ def save_metric(data: dict):
     
     conn.commit()
     conn.close()
+
+def get_all_agents():
+    """
+    Returns all known agents with their hostname, last seen timestamp,
+    and online status. An agent is considered online if its last metric
+    arrived within the last 10 seconds.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+ 
+    cursor.execute('''
+        SELECT
+            agent_id,
+            hostname,
+            MAX(timestamp) as last_seen,
+            CASE
+                WHEN MAX(timestamp) >= datetime('now', '-10 seconds') THEN 'online'
+                ELSE 'offline'
+            END as status
+        FROM system_metrics
+        GROUP BY agent_id
+        ORDER BY last_seen DESC
+    ''')
+ 
+    rows = cursor.fetchall()
+    conn.close()
+ 
+    return [dict(row) for row in rows]
+ 
+ 
+def get_latest_metric(agent_id: str):
+    """
+    Returns the single most recent metric row for a given agent.
+    Used for the current-value cards on the dashboard.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+ 
+    cursor.execute('''
+        SELECT
+            agent_id,
+            hostname,
+            timestamp,
+            cpu_percent,
+            ram_percent,
+            disk_percent,
+            net_sent_mb,
+            net_recv_mb
+        FROM system_metrics
+        WHERE agent_id = ?
+        ORDER BY timestamp DESC
+        LIMIT 1
+    ''', (agent_id,))
+ 
+    row = cursor.fetchone()
+    conn.close()
+ 
+    return dict(row) if row else None
+
+
+# Maps the range query param to a SQLite datetime modifier
+RANGE_MAP = {
+    "1h":  "-1 hours",
+    "6h":  "-6 hours",
+    "12h": "-12 hours",
+}
+ 
+# Maps the resolution query param to a SQL bucket expression
+RESOLUTION_MAP = {
+    "1m":  "strftime('%Y-%m-%dT%H:%M:00', timestamp)",
+    "5m":  "strftime('%Y-%m-%dT%H:', timestamp) || printf('%02d', (CAST(strftime('%M', timestamp) AS INTEGER) / 5) * 5) || ':00'",
+    "15m": "strftime('%Y-%m-%dT%H:', timestamp) || printf('%02d', (CAST(strftime('%M', timestamp) AS INTEGER) / 15) * 15) || ':00'",
+}
+ 
+ 
+def get_metrics(agent_id: str, range: str = "1h", resolution: str = "1m"):
+    """
+    Returns downsampled time-series metrics for a given agent.
+ 
+    range:      how far back to look       — "1h", "6h", "12h"
+    resolution: size of each time bucket   — "1m", "5m", "15m"
+ 
+    Each row in the result is one bucket containing averaged values
+    for all raw metric rows that fell within that bucket's time window.
+    """
+    range_modifier  = RANGE_MAP.get(range, "-1 hours")
+    bucket_expr     = RESOLUTION_MAP.get(resolution, RESOLUTION_MAP["1m"])
+ 
+    query = f'''
+        SELECT
+            {bucket_expr} as bucket,
+            AVG(cpu_percent)  as cpu,
+            AVG(ram_percent)  as ram,
+            AVG(disk_percent) as disk,
+            AVG(net_sent_mb)  as net_sent,
+            AVG(net_recv_mb)  as net_recv
+        FROM system_metrics
+        WHERE agent_id = ?
+        AND timestamp >= datetime('now', '{range_modifier}')
+        GROUP BY {bucket_expr}
+        ORDER BY bucket ASC
+    '''
+ 
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(query, (agent_id,))
+    rows = cursor.fetchall()
+    conn.close()
+ 
+    return [dict(row) for row in rows]
+ 
