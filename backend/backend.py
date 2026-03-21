@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 import logging
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -19,13 +20,14 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
-
-@app.on_event("startup")
-def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     database.init_db()
     logger.info("Nerve Backend Initialized and DB connected.")
-
+    yield
+    logger.info("Nerve Backend shutting down.")
+ 
+app = FastAPI(lifespan=lifespan)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -48,7 +50,7 @@ class Metrics(BaseModel):
 
 @app.post("/metrics")
 def receive_metrics(data: Metrics):
-    payload = data.dict()
+    payload = data.model_dump()
     
     try:
         database.save_metric(payload)
